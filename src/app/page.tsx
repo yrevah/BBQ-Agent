@@ -9,15 +9,16 @@ export default function DashboardPage() {
         </p>
       </header>
       <section className="grid gap-4 sm:grid-cols-3">
-        <Card title="Knowledge items" value="—" hint="From Drive + Keep" />
+        <Card title="Knowledge items" value="—" hint="From your BBQ folder" />
         <Card title="Pending review" value="—" hint="Items awaiting your call" />
-        <Card title="Last sync" value="—" hint="Not yet configured" />
+        <Card title="Last import" value="—" hint="Not yet configured" />
       </section>
       <section className="rounded-lg border border-neutral-200 bg-white p-6">
         <h2 className="text-base font-medium">Getting started</h2>
         <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-neutral-700">
-          <li>Connect Google Drive and Keep in Sources.</li>
-          <li>Run the initial backfill from Settings.</li>
+          <li>Sync your Drive BBQ folder to this machine.</li>
+          <li>Point the app at that folder in Sources.</li>
+          <li>Run the initial import from Settings.</li>
           <li>Review classified items in the Inbox.</li>
           <li>Ask your first question on the assistant page.</li>
         </ol>

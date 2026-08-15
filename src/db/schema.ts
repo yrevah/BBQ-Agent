@@ -1,125 +1,104 @@
+import { sql } from "drizzle-orm";
 import {
-  pgTable,
+  sqliteTable,
   text,
-  timestamp,
   integer,
-  jsonb,
-  primaryKey,
-  uuid,
-  vector,
+  blob,
   index,
-} from "drizzle-orm/pg-core";
+} from "drizzle-orm/sqlite-core";
 
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  email: text("email").notNull().unique(),
-  name: text("name"),
-  image: text("image"),
-  emailVerified: timestamp("email_verified", { mode: "date" }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+const id = () =>
+  text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID());
 
-export const accounts = pgTable(
-  "accounts",
-  {
-    userId: uuid("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
-    type: text("type").notNull(),
-    provider: text("provider").notNull(),
-    providerAccountId: text("provider_account_id").notNull(),
-    refresh_token: text("refresh_token"),
-    access_token: text("access_token"),
-    expires_at: integer("expires_at"),
-    token_type: text("token_type"),
-    scope: text("scope"),
-    id_token: text("id_token"),
-    session_state: text("session_state"),
-  },
-  (a) => ({
-    pk: primaryKey({ columns: [a.provider, a.providerAccountId] }),
-  }),
-);
-
-export const sessions = pgTable("sessions", {
-  sessionToken: text("session_token").primaryKey(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  expires: timestamp("expires", { mode: "date" }).notNull(),
-});
-
-export const sources = pgTable("sources", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+/** A place BBQ knowledge comes from: a synced Drive folder, a Keep export, etc. */
+export const sources = sqliteTable("sources", {
+  id: id(),
   kind: text("kind").notNull(),
-  config: jsonb("config").notNull().default({}),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  config: text("config", { mode: "json" })
+    .notNull()
+    .$type<Record<string, unknown>>()
+    .default({}),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
 });
 
-export const sourceItems = pgTable(
+/** One file or note pulled from a source, before chunking. */
+export const sourceItems = sqliteTable(
   "source_items",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    sourceId: uuid("source_id")
+    id: id(),
+    sourceId: text("source_id")
       .notNull()
       .references(() => sources.id, { onDelete: "cascade" }),
+    /** Stable identity within the source — for a folder, the relative path. */
     externalId: text("external_id").notNull(),
     title: text("title"),
     content: text("content"),
     contentHash: text("content_hash"),
+    /** bbq | non_bbq | ambiguous — null until the classifier has run. */
     classification: text("classification"),
+    /** pending | indexed | discarded */
     status: text("status").notNull().default("pending"),
-    metadata: jsonb("metadata").notNull().default({}),
-    fetchedAt: timestamp("fetched_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    metadata: text("metadata", { mode: "json" })
+      .notNull()
+      .$type<Record<string, unknown>>()
+      .default({}),
+    fetchedAt: integer("fetched_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
+    updatedAt: integer("updated_at", { mode: "timestamp" })
+      .notNull()
+      .default(sql`(unixepoch())`),
   },
-  (t) => ({
-    sourceExternal: index("source_items_source_external_idx").on(
-      t.sourceId,
-      t.externalId,
-    ),
-  }),
+  (t) => [
+    index("source_items_source_external_idx").on(t.sourceId, t.externalId),
+    index("source_items_status_idx").on(t.status),
+  ],
 );
 
-export const chunks = pgTable(
+/**
+ * A retrievable slice of a source item. Embeddings are stored as raw
+ * float32 bytes and scored with a brute-force cosine scan — at this corpus
+ * size that is well under a millisecond, so there is no vector index.
+ */
+export const chunks = sqliteTable(
   "chunks",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
-    sourceItemId: uuid("source_item_id")
+    id: id(),
+    sourceItemId: text("source_item_id")
       .notNull()
       .references(() => sourceItems.id, { onDelete: "cascade" }),
     ordinal: integer("ordinal").notNull(),
     text: text("text").notNull(),
     tokenCount: integer("token_count"),
-    embedding: vector("embedding", { dimensions: 1536 }),
+    embedding: blob("embedding", { mode: "buffer" }),
   },
-  (t) => ({
-    embeddingIdx: index("chunks_embedding_idx").using(
-      "hnsw",
-      t.embedding.op("vector_cosine_ops"),
-    ),
-  }),
+  (t) => [index("chunks_source_item_idx").on(t.sourceItemId)],
 );
 
-export const conversations = pgTable("conversations", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+export const conversations = sqliteTable("conversations", {
+  id: id(),
   title: text("title"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
 });
 
-export const messages = pgTable("messages", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  conversationId: uuid("conversation_id")
+export const messages = sqliteTable("messages", {
+  id: id(),
+  conversationId: text("conversation_id")
     .notNull()
     .references(() => conversations.id, { onDelete: "cascade" }),
   role: text("role").notNull(),
   content: text("content").notNull(),
-  citations: jsonb("citations").notNull().default([]),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  citations: text("citations", { mode: "json" })
+    .notNull()
+    .$type<unknown[]>()
+    .default([]),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
 });

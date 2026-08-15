@@ -2,16 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import * as schema from "./schema";
+import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 
 const file =
   process.env.DATABASE_FILE ?? path.join(process.cwd(), "data", "bbq.db");
 
 fs.mkdirSync(path.dirname(file), { recursive: true });
 
-const sqlite = new Database(file);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+const db = drizzle(new Database(file));
+migrate(db, { migrationsFolder: "./drizzle" });
 
-export const db = drizzle(sqlite, { schema });
-export { schema };
+console.log(`Migrations applied to ${file}`);

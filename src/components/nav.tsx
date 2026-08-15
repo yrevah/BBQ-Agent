@@ -1,6 +1,4 @@
 import Link from "next/link";
-import { auth } from "@/auth";
-import { signOutAction } from "@/app/sources/actions";
 
 const links = [
   { href: "/", label: "Dashboard" },
@@ -9,9 +7,7 @@ const links = [
   { href: "/settings", label: "Settings" },
 ];
 
-export async function Nav() {
-  const session = await auth();
-
+export function Nav() {
   return (
     <header className="border-b border-neutral-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
@@ -24,21 +20,6 @@ export async function Nav() {
               {l.label}
             </Link>
           ))}
-          {session?.user ? (
-            <form action={signOutAction}>
-              <button
-                type="submit"
-                className="text-neutral-600 hover:text-neutral-900"
-                title={session.user.email ?? undefined}
-              >
-                Sign out
-              </button>
-            </form>
-          ) : (
-            <Link href="/sources" className="hover:text-neutral-900">
-              Sign in
-            </Link>
-          )}
         </nav>
       </div>
     </header>

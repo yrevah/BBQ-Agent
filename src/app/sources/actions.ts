@@ -1,74 +1,42 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
-import { auth, signIn, signOut } from "@/auth";
 import { db, schema } from "@/db";
-import {
-  getDriveFolder,
-  getGoogleAccessToken,
-  parseDriveFolderInput,
-} from "@/lib/google";
+import { inspectLibrary, LibraryError } from "@/lib/library";
 
-export async function signInWithGoogleAction() {
-  await signIn("google", { redirectTo: "/sources" });
-}
+export type LibraryConfig = {
+  rootPath: string;
+  fileCount: number;
+  extractableCount: number;
+};
 
-export async function signOutAction() {
-  await signOut({ redirectTo: "/" });
-}
-
-export type ConnectDriveResult =
-  | { ok: true; folderName: string }
+export type ConnectLibraryResult =
+  | { ok: true; config: LibraryConfig }
   | { ok: false; error: string };
 
-export async function connectDriveFolderAction(
-  _prev: ConnectDriveResult | null,
+export async function connectLibraryAction(
+  _prev: ConnectLibraryResult | null,
   formData: FormData,
-): Promise<ConnectDriveResult> {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return { ok: false, error: "Sign in first." };
-  }
-
-  const raw = formData.get("folder");
+): Promise<ConnectLibraryResult> {
+  const raw = formData.get("rootPath");
   if (typeof raw !== "string") {
-    return { ok: false, error: "Missing folder input." };
+    return { ok: false, error: "Missing folder path." };
   }
 
-  let folderId: string;
+  let config: LibraryConfig;
   try {
-    folderId = parseDriveFolderInput(raw);
+    config = await inspectLibrary(raw);
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-
-  let accessToken: string;
-  try {
-    accessToken = await getGoogleAccessToken(session.user.id);
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
-  }
-
-  let folder;
-  try {
-    folder = await getDriveFolder(accessToken, folderId);
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    if (e instanceof LibraryError) return { ok: false, error: e.message };
+    throw e;
   }
 
   const existing = await db
     .select({ id: schema.sources.id })
     .from(schema.sources)
-    .where(
-      and(
-        eq(schema.sources.userId, session.user.id),
-        eq(schema.sources.kind, "google_drive"),
-      ),
-    )
+    .where(eq(schema.sources.kind, "local_folder"))
     .limit(1);
-
-  const config = { folderId: folder.id, folderName: folder.name };
 
   if (existing[0]) {
     await db
@@ -76,13 +44,21 @@ export async function connectDriveFolderAction(
       .set({ config })
       .where(eq(schema.sources.id, existing[0].id));
   } else {
-    await db.insert(schema.sources).values({
-      userId: session.user.id,
-      kind: "google_drive",
-      config,
-    });
+    await db
+      .insert(schema.sources)
+      .values({ kind: "local_folder", config });
   }
 
   revalidatePath("/sources");
-  return { ok: true, folderName: folder.name };
+  return { ok: true, config };
+}
+
+export async function getLibraryConfig(): Promise<LibraryConfig | null> {
+  const rows = await db
+    .select({ config: schema.sources.config })
+    .from(schema.sources)
+    .where(eq(schema.sources.kind, "local_folder"))
+    .limit(1);
+
+  return (rows[0]?.config as LibraryConfig | undefined) ?? null;
 }
